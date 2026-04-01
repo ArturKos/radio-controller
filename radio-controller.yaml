@@ -1,0 +1,375 @@
+esphome:
+  name: radio-controller
+  friendly_name: "RF Radio Controller"
+
+esp8266:
+  board: nodemcuv2
+
+# WiFi
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  min_auth_mode: WPA2
+  fast_connect: true
+  power_save_mode: none
+  output_power: 20dB
+
+  # Fallback hotspot
+  ap:
+    ssid: "Radio-Controller"
+    password: "UsxSPRmmyB8Q"
+
+captive_portal:
+
+# Home Assistant API
+api:
+  encryption:
+    key: !secret api_key
+
+# OTA updates
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# Logging
+logger:
+  level: DEBUG
+
+# Web server for diagnostics
+web_server:
+  port: 80
+
+# SPI bus for CC1101
+spi:
+  clk_pin: D5
+  mosi_pin: D7
+  miso_pin: D6
+
+# CC1101 transceiver — native ESPHome component
+# Single GDO0 pin (D2) shared for both RX and TX
+cc1101:
+  cs_pin: D8
+  gdo0_pin:
+    number: D2
+    allow_other_uses: true
+  frequency: 433.92MHz
+  modulation_type: ASK/OOK
+  symbol_rate: 5000
+  filter_bandwidth: 203kHz
+
+# RF Receiver — GDO0 (D2)
+# Listens for all 433MHz signals: remotes, weather stations, door sensors, etc.
+remote_receiver:
+  pin:
+    number: D2
+    allow_other_uses: true
+    mode: INPUT_PULLUP
+  dump:
+    - rc_switch
+  tolerance: 60%
+  filter: 200us
+  idle: 4ms
+  on_rc_switch:
+    then:
+      - lambda: |-
+          // Filter out protocol 2 noise (spurious code=0x0 from RF interference)
+          if (x.protocol == 2 && x.code == 0) return;
+
+          // Count valid signals only
+          id(rf_signal_count) += 1;
+
+          // Store last code for HA display
+          char buf[80];
+          snprintf(buf, sizeof(buf), "P%d: 0x%llX", x.protocol, x.code);
+          id(last_rf_code) = buf;
+
+          // Log for discovery — watch these logs to find weather stations & sensors
+          ESP_LOGI("rf_monitor", "RC Switch: protocol=%d code=0x%llX",
+                   x.protocol, x.code);
+
+          // --- ADD YOUR DOOR/WINDOW SENSOR CODES HERE ---
+          // Example (use hex codes from logs):
+          // if (x.protocol == 1 && x.code == 0x3543FC0) {
+          //   id(door_sensor_1_state) = true;
+          //   id(front_door).publish_state(true);
+          // }
+
+# RF Transmitter — GDO0 (D2)
+# on_transmit/on_complete switch CC1101 between TX and RX modes
+remote_transmitter:
+  pin:
+    number: D2
+    allow_other_uses: true
+  carrier_duty_percent: 100%
+  on_transmit:
+    then:
+      - cc1101.begin_tx
+  on_complete:
+    then:
+      - cc1101.begin_rx
+
+# =============================================================================
+# BEDROOM (Remote 1 — protocol 1)
+# =============================================================================
+button:
+  # Button 1: toggle on/off
+  - platform: template
+    name: "Bedroom - Toggle 1"
+    icon: "mdi:lightbulb"
+    on_press:
+      - remote_transmitter.transmit_rc_switch_raw:
+          code: '001101010011111111000000'
+          protocol: 1
+          repeat:
+            times: 10
+            wait_time: 0s
+
+  # Button 2: toggle on/off
+  - platform: template
+    name: "Bedroom - Toggle 2"
+    icon: "mdi:lightbulb"
+    on_press:
+      - remote_transmitter.transmit_rc_switch_raw:
+          code: '001101010011111100110000'
+          protocol: 1
+          repeat:
+            times: 10
+            wait_time: 0s
+
+  # Button 3: ON
+  - platform: template
+    name: "Bedroom - ON"
+    icon: "mdi:lightbulb-on"
+    on_press:
+      - remote_transmitter.transmit_rc_switch_raw:
+          code: '001101010011111100001100'
+          protocol: 1
+          repeat:
+            times: 10
+            wait_time: 0s
+
+  # Button 4: OFF
+  - platform: template
+    name: "Bedroom - OFF"
+    icon: "mdi:lightbulb-off"
+    on_press:
+      - remote_transmitter.transmit_rc_switch_raw:
+          code: '001101010011111100000011'
+          protocol: 1
+          repeat:
+            times: 10
+            wait_time: 0s
+
+# =============================================================================
+# LIVING ROOM (Remote 2 — protocol 3)
+# =============================================================================
+
+  # Button 1: toggle on/off
+  - platform: template
+    name: "Living Room - Toggle 1"
+    icon: "mdi:lightbulb"
+    on_press:
+      - remote_transmitter.transmit_rc_switch_raw:
+          code: '000100011111101100010000'
+          protocol: 3
+          repeat:
+            times: 10
+            wait_time: 0s
+
+  # Button 2: toggle on/off
+  - platform: template
+    name: "Living Room - Toggle 2"
+    icon: "mdi:lightbulb"
+    on_press:
+      - remote_transmitter.transmit_rc_switch_raw:
+          code: '000100011111101100100000'
+          protocol: 3
+          repeat:
+            times: 10
+            wait_time: 0s
+
+  # Button 3: OFF
+  - platform: template
+    name: "Living Room - OFF"
+    icon: "mdi:lightbulb-off"
+    on_press:
+      - remote_transmitter.transmit_rc_switch_raw:
+          code: '000100011111101111100000'
+          protocol: 3
+          repeat:
+            times: 10
+            wait_time: 0s
+
+  # Button 4: ON
+  - platform: template
+    name: "Living Room - ON"
+    icon: "mdi:lightbulb-on"
+    on_press:
+      - remote_transmitter.transmit_rc_switch_raw:
+          code: '000100011111101111000000'
+          protocol: 3
+          repeat:
+            times: 10
+            wait_time: 0s
+
+  # Button 5: OFF
+  - platform: template
+    name: "Living Room - OFF 2"
+    icon: "mdi:lightbulb-off"
+    on_press:
+      - remote_transmitter.transmit_rc_switch_raw:
+          code: '000100011111101101100000'
+          protocol: 3
+          repeat:
+            times: 10
+            wait_time: 0s
+
+  # Button 6: timer 30 seconds
+  - platform: template
+    name: "Living Room - Timer 30s"
+    icon: "mdi:timer-sand"
+    on_press:
+      - remote_transmitter.transmit_rc_switch_raw:
+          code: '000100011111101101000000'
+          protocol: 3
+          repeat:
+            times: 10
+            wait_time: 0s
+
+  # Button 7: timer 30 minutes
+  - platform: template
+    name: "Living Room - Timer 30min"
+    icon: "mdi:timer-outline"
+    on_press:
+      - remote_transmitter.transmit_rc_switch_raw:
+          code: '000100011111101110100000'
+          protocol: 3
+          repeat:
+            times: 10
+            wait_time: 0s
+
+  # Button 8: timer 60 minutes
+  - platform: template
+    name: "Living Room - Timer 60min"
+    icon: "mdi:timer"
+    on_press:
+      - remote_transmitter.transmit_rc_switch_raw:
+          code: '000100011111101110000000'
+          protocol: 3
+          repeat:
+            times: 10
+            wait_time: 0s
+
+# =============================================================================
+# RF ACTIVITY MONITORING
+# =============================================================================
+# Tracks all 433MHz activity — weather stations, door sensors, remotes, etc.
+# Unknown devices appear in logs; known devices get dedicated HA sensors.
+
+globals:
+  # RF activity counter
+  - id: rf_signal_count
+    type: int
+    restore_value: no
+    initial_value: '0'
+  # Last received code + protocol (for HA text sensor)
+  - id: last_rf_code
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+  # Door/window sensor states — add your sensor codes here after sniffing
+  # Example: a door sensor sends one code when open, another when closed
+  - id: door_sensor_1_state
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+sensor:
+  # WiFi signal strength
+  - platform: wifi_signal
+    name: "Radio Controller WiFi Signal"
+    update_interval: 60s
+
+  # Uptime
+  - platform: uptime
+    name: "Radio Controller Uptime"
+
+  # RF signals received counter — resets daily
+  - platform: template
+    name: "RF Signals Received"
+    icon: "mdi:radio-tower"
+    id: rf_counter_sensor
+    lambda: |-
+      return id(rf_signal_count);
+    update_interval: 10s
+
+text_sensor:
+  # Last received RF code — visible in HA for debugging/discovery
+  - platform: template
+    name: "Last RF Code"
+    icon: "mdi:broadcast"
+    id: last_rf_code_sensor
+    lambda: |-
+      return id(last_rf_code);
+    update_interval: 5s
+
+  # ESPHome version
+  - platform: version
+    name: "Radio Controller ESPHome Version"
+
+binary_sensor:
+  # Door/window sensor example — UNCOMMENT and set your codes after sniffing
+  # When you see a door sensor code in logs, add it here:
+  #
+  # - platform: template
+  #   name: "Front Door"
+  #   device_class: door
+  #   id: front_door
+  #   lambda: |-
+  #     return id(door_sensor_1_state);
+  #
+  # Then in the on_rc_switch lambda above, add:
+  #   if (x.code == "YOUR_DOOR_OPEN_CODE") id(door_sensor_1_state) = true;
+  #   if (x.code == "YOUR_DOOR_CLOSED_CODE") id(door_sensor_1_state) = false;
+  #   id(front_door).publish_state(id(door_sensor_1_state));
+
+  # Connection status
+  - platform: status
+    name: "Radio Controller Status"
+
+# Reset RF counter at midnight
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+    on_time:
+      - seconds: 0
+        minutes: 0
+        hours: 0
+        then:
+          - lambda: |-
+              id(rf_signal_count) = 0;
+
+# =============================================================================
+# RF SIGNAL PROCESSOR
+# =============================================================================
+# This interval checks for patterns in received signals.
+# Weather stations typically transmit every 30-60 seconds with a fixed prefix.
+# Door sensors transmit on open/close events.
+#
+# HOW TO USE:
+# 1. Flash this config and watch the logs
+# 2. Look for repeating codes — those are likely weather stations or sensors
+# 3. Note the code prefix (first ~16 bits are usually the device ID)
+# 4. Add dedicated sensors below for recognized devices
+#
+# Example log entries you might see:
+#   [rf_monitor] RC Switch: protocol=1 code=010101100110001010110010
+#   ^^^^^^^^^^^^^^^^ if this repeats every 30-60s, it's likely a weather station
+#
+# Weather station codes typically encode:
+#   - Device ID (first 8-12 bits)
+#   - Channel (2 bits)
+#   - Temperature (12 bits, often offset by 400 or as BCD)
+#   - Humidity (8 bits)
+#   - Battery status (1 bit)
+# =============================================================================
